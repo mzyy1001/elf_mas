@@ -1,0 +1,26 @@
+{
+  "A-only": {
+    "question": "who was the ruler of england in 1616",
+    "answer": "James I",
+    "ctx_a": "Kingdom of Denmark -- Christian IV (1588 -- 1648) Duchy of Schleswig -- Christian IV (1588 -- 1648) and John Adolphus (1590 -- 1616) in condominial rule Christian IV (1588 -- 1648) and Frederick III (1616 -- 1659) in condominial",
+    "ctx_b": "Partial Bible translations into languages of the English people can be traced back to the late 7th century, including translations into Old and Middle English. More than 450 translations into English have been written. Until the 19th century, Westminster was the third seat of learning in England, after Oxford and"
+  },
+  "neither": {
+    "question": "who was the one who got away katy perry",
+    "answer": "unknown",
+    "ctx_a": "When Philippine de Rothschild was ten years old, she witnessed the Gestapo arrest her mother, who later died at Ravensbr\u00fcck concentration camp, the only known member of the Rothschild family to die during World War II. Mohamed Fornah (born November 20, 1987 in Freetown, Sierra Leon",
+    "ctx_b": "BCS: 50 Years is a review volume edited by Leon Cooper, a 1972 Nobel Laureate in Physics, and Dmitri Feldman of Brown University, first published in 2010. The Kaskapau Formation in northern Alberta replaces the upper Blackstone Formation, the Cardium Formation, and the Musk"
+  },
+  "AB": {
+    "question": "In what episode of The Office does Dwight save Pam's husband from Roy?",
+    "answer": "``The Negotiation ''",
+    "ctx_a": "The will they or won't they ''tension between Jim and Pam is a strong storyline in the early episodes of The Office, encompassing much of Seasons 1 to 3. In the opener of Season 4, the two characters are revealed to be dating, and as such, other character",
+    "ctx_b": "The Negotiation ''(originally titled Labor Negotiation'') is the nineteenth episode of the third season of the American comedy television series The Office, and the show's forty - seventh episode overall. The series depicts the everyday lives of office employees in the Scranton"
+  },
+  "B-only": {
+    "question": "Woodrow Wilson >> child",
+    "answer": "Jessie Woodrow Wilson",
+    "ctx_a": "The 1827 State of the Union Address was written by John Quincy Adams, the sixth President of the United States. It was given on Tuesday, December 4, 1827, to the United States House of Representatives and United States Senate. Adams said, \"A revolution of the seasons has nearly been completed since the representatives",
+    "ctx_b": "Jessie Woodrow Wilson Sayre (August 28, 1887 \u2013 January 15, 1933) was a daughter of US President Woodrow Wilson and Ellen Louise Axson. She was a political activist, and \"She worked vigorously for women's suffrage, social issues, and to"
+  }
+}

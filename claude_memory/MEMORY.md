@@ -1,0 +1,10 @@
+- [Project: ELF-MAS](project_elf_mas.md) — multi-agent ELF; original "latent comm" pitch killed by CIPHER/LatentMAS, pivoted to Coupled Multi-Agent Language Flows (velocity-residuals over a shared flow trajectory).
+- [Novelty check v1](../../../../elf_mas/notes/novelty_check_v1.md) — v0.1 prior-work landscape + reframing recommendation (3/10 — pivoted), 2026-05-14.
+- [Novelty check v2](../../../../elf_mas/notes/novelty_check_v2.md) — v0.2 cleared 6/10 — PROCEED WITH CAUTION; surviving contribution is full conjunction including private-context-per-agent + causal evidence-grounded specialization, 2026-05-14.
+- [Phase 1 first result](project_phase1_results.md) — 2026-05-16 lesion matrix shows role-specific specialization (A-only: Δa=0.146 vs Δb=0.015, 10× asymmetry) within 2000 steps on synth_2fact_v1.
+- [Phase 3 Cola+MAS breakthrough](project_phase3_breakthrough.md) — 2026-05-24 AB-bucket 58.5% per-token EM with clean lesion drops on synth_2fact_v1; recipe = LoRA in-block + uniform-t + CE λ=0.3; watch for the decode-strip artifact.
+- [Framing preferences](feedback_framing.md) — center training claim, treat DIAL as related-work not killer, controlled-pilot-before-benchmark.
+- [User context: Hongrui](user_hongrui.md) — researcher starting an ELF-MAS project; prefers candid feedback and concrete plans over hedged answers.
+- [Compute available](project_compute.md) — local RTX 5090 (Blackwell, 32 GB) + remote NVIDIA-GPU server; no TPU.
+- [Tooling state](reference_tooling.md) — codex authed; ARIS in `~/.claude/skills/`; ELF baseline at `~/elf_mas/baselines/ELF`; chen env validated, ELF-B-de-en BLEU 26.53.
+- [chen network](reference_network.md) — HF blocked, scp WSL→chen ~20 KB/s; modelscope bridge `mzyy1001/elf-mas-bridge` is the working transit (7-15 MB/s both directions).

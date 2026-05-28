@@ -1,0 +1,41 @@
+# Large model assets and caches (kept on chen / regenerable)
+phase2_assets/
+phase3_assets/
+hf_transfer/
+hf_transfer_t5/
+runs/
+data/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Vendored / external sources — fetch separately
+baselines/ELF/
+cola_dlm_src/
+aris-source/
+ms_venv/
+
+# Environment files — only .env.example is tracked
+.env
+.env.*
+!.env.example
+
+# Editor / OS junk
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# ARIS local traces (large, regenerable)
+.aris/traces/
+
+# Local checkpoints / wandb / etc.
+wandb/
+*.pt
+*.bin
+*.safetensors
+
+# Logs
+*.log
+.claude/
