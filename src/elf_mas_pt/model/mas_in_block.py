@@ -92,12 +92,20 @@ class MASBlockWrapper(nn.Module):
     """
     def __init__(self, original_block: nn.Module, txt_dim: int,
                  ctx_lat_dim: int, inner_dim: int = 512, num_heads: int = 8,
-                 block_size: int = 16):
+                 block_size: int = 16, mode: str = "dual",
+                 single_inner: int = 848, single_heads: int = 8):
         super().__init__()
+        assert mode in {"dual", "single"}, f"unknown wrapper mode {mode!r}"
         self.original = original_block
         self.block_size = block_size
-        self.mas_a = MASInjection(txt_dim, ctx_lat_dim, inner_dim, num_heads)
-        self.mas_b = MASInjection(txt_dim, ctx_lat_dim, inner_dim, num_heads)
+        self.mode = mode
+        if mode == "dual":
+            # Two per-agent residual heads (variants B0 full / B6 / B7 / B2).
+            self.mas_a = MASInjection(txt_dim, ctx_lat_dim, inner_dim, num_heads)
+            self.mas_b = MASInjection(txt_dim, ctx_lat_dim, inner_dim, num_heads)
+        else:
+            # B4 single_model: ONE param-matched head over concat(ctx_a, ctx_b).
+            self.mas_s = MASInjection(txt_dim, ctx_lat_dim, single_inner, single_heads)
         # Per-batch state (set by trainer / sampler)
         self._ctx_a: Optional[Tensor] = None
         self._ctx_b: Optional[Tensor] = None
@@ -134,6 +142,20 @@ class MASBlockWrapper(nn.Module):
             # but a stale call slipped through). Skip injection.
             return out
         h = out.reshape(B, bs, -1)
+        if self.mode == "single":
+            # Single head over concat(ctx_a, ctx_b); lesions mask the A- or B-half.
+            if self._ablation == "Neither":
+                return out  # residual is identically zero
+            ctx = torch.cat([self._ctx_a, self._ctx_b], dim=1)
+            mask = torch.cat([self._ctx_a_mask, self._ctx_b_mask], dim=1)
+            Sa = self._ctx_a_mask.shape[1]
+            if self._ablation == "A_only":      # keep A's context, drop B's
+                mask = mask.clone(); mask[:, Sa:] = False
+            elif self._ablation == "B_only":    # keep B's context, drop A's
+                mask = mask.clone(); mask[:, :Sa] = False
+            h = h + self.mas_s(h, ctx, mask)
+            return h.reshape(B * bs, -1)
+        # dual mode (B0 / B6 / B7 / B2)
         residual = torch.zeros_like(h)
         if self._ablation in {"AB", "A_only"}:
             residual = residual + self.mas_a(h, self._ctx_a, self._ctx_a_mask)
@@ -156,35 +178,54 @@ def patch_cola_dit_with_mas(
     inner_dim: int = 512,
     num_heads: int = 8,
     block_size: int = 16,
+    mode: str = "dual",
+    single_inner: int = 848,
+    single_heads: int = 8,
 ) -> List[MASBlockWrapper]:
     """Replace selected DiT blocks (`dit.blocks[i]`) with MASBlockWrapper.
-    Returns the list of wrappers for downstream context-setting."""
+    Returns the list of wrappers for downstream context-setting.
+
+    mode="dual"   -> two per-agent heads (B0/B6/B7/B2).
+    mode="single" -> one param-matched head over concat(ctx_a,ctx_b) (B4)."""
     wrappers: List[MASBlockWrapper] = []
     for idx in layer_indices:
         orig = dit.blocks[idx]
         p0 = next(orig.parameters())
         wrapper = MASBlockWrapper(orig, txt_dim=txt_dim, ctx_lat_dim=ctx_lat_dim,
                                   inner_dim=inner_dim, num_heads=num_heads,
-                                  block_size=block_size)
+                                  block_size=block_size, mode=mode,
+                                  single_inner=single_inner, single_heads=single_heads)
         # Move ONLY the new MAS submodules to Cola's device + dtype.
         # The original block is already there; moving the whole wrapper would
         # re-cast the frozen Cola weights (no-op but wasteful).
-        wrapper.mas_a = wrapper.mas_a.to(device=p0.device, dtype=p0.dtype)
-        wrapper.mas_b = wrapper.mas_b.to(device=p0.device, dtype=p0.dtype)
+        if mode == "single":
+            wrapper.mas_s = wrapper.mas_s.to(device=p0.device, dtype=p0.dtype)
+        else:
+            wrapper.mas_a = wrapper.mas_a.to(device=p0.device, dtype=p0.dtype)
+            wrapper.mas_b = wrapper.mas_b.to(device=p0.device, dtype=p0.dtype)
         dit.blocks[idx] = wrapper
         wrappers.append(wrapper)
     return wrappers
 
 
 def collect_mas_params(wrappers: List[MASBlockWrapper]) -> List[nn.Parameter]:
-    """All trainable MAS params (cross-attn + gates + projections) across wrappers."""
+    """All MAS params (cross-attn + gates + projections) across wrappers."""
     params = []
     for w in wrappers:
-        for p in w.mas_a.parameters():
-            params.append(p)
-        for p in w.mas_b.parameters():
-            params.append(p)
+        if w.mode == "single":
+            params.extend(w.mas_s.parameters())
+        else:
+            params.extend(w.mas_a.parameters())
+            params.extend(w.mas_b.parameters())
     return params
+
+
+def injection_param_count(txt_dim: int, ctx_lat_dim: int,
+                          inner_dim: int, num_heads: int = 8) -> int:
+    """Param count of one MASInjection — used to size/verify the param-matched
+    single_model (B4) head against the dual (B0) reference."""
+    m = MASInjection(txt_dim, ctx_lat_dim, inner_dim, num_heads)
+    return sum(p.numel() for p in m.parameters())
 
 
 def set_context_all(wrappers: List[MASBlockWrapper],

@@ -34,6 +34,7 @@ from elf_mas_pt.model.frozen_cola import FrozenColaBackbone, FrozenColaSpec
 from elf_mas_pt.model.mas_heads import CoupledMASHeads, SingleHeadMASWrapper
 from elf_mas_pt.model.mas_in_block import (
     MASBlockWrapper, patch_cola_dit_with_mas, set_context_all, clear_context_all,
+    collect_mas_params,
 )
 from elf_mas_pt.training.train_cola import (
     build_batch_inputs, compute_v0_unconditional,
@@ -423,6 +424,7 @@ def main():
         print(f"[eval] loading LoRA state from {ckpt_path}")
         ckpt = torch.load(ckpt_path, map_location=device)
         txt_dim = backbone.dit.config.txt_dim if hasattr(backbone.dit.config, "txt_dim") else 2048
+        mode = ckpt.get("mode", "dual")  # old checkpoints predate `mode`; they are dual
         lora_wrappers = patch_cola_dit_with_mas(
             backbone.dit,
             txt_dim=txt_dim,
@@ -431,15 +433,26 @@ def main():
             inner_dim=ckpt["lora_inner"],
             num_heads=ckpt["lora_heads"],
             block_size=backbone.block_size,
+            mode=mode,
+            single_inner=ckpt.get("single_inner", 848),
+            single_heads=ckpt["lora_heads"],
         )
         for w, wckpt in zip(lora_wrappers, ckpt["wrappers"]):
-            w.mas_a.load_state_dict(wckpt["mas_a"])
-            w.mas_b.load_state_dict(wckpt["mas_b"])
+            if mode == "single":
+                w.mas_s.load_state_dict(wckpt["mas_s"])
+            else:
+                w.mas_a.load_state_dict(wckpt["mas_a"])
+                w.mas_b.load_state_dict(wckpt["mas_b"])
             w.eval()
         for p_ in backbone.dit.parameters():
             p_.requires_grad_(False)
-        n_lora = sum(p.numel() for w in lora_wrappers for p in list(w.mas_a.parameters()) + list(w.mas_b.parameters()))
-        print(f"[eval] LoRA-mode: patched layers {ckpt['lora_layer_indices']}  loaded {n_lora:,} params")
+        n_lora = sum(p.numel() for p in collect_mas_params(lora_wrappers))
+        ck_variant = ckpt.get("variant")
+        if ck_variant is not None and ck_variant != args.variant:
+            print(f"[eval][WARN] --variant={args.variant!r} but checkpoint was trained as "
+                  f"{ck_variant!r}; using the checkpoint's architecture (mode={mode}).")
+        print(f"[eval] LoRA-mode mode={mode} variant={ck_variant or args.variant} "
+              f"patched layers {ckpt['lora_layer_indices']}  loaded {n_lora:,} params")
     else:
         if args.variant == "single_model":
             mas_model = SingleHeadMASWrapper(

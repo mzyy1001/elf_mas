@@ -33,8 +33,52 @@ from elf_mas_pt.model.frozen_cola import FrozenColaBackbone, FrozenColaSpec  # t
 from elf_mas_pt.model.mas_heads import CoupledMASHeads, SingleHeadMASWrapper, combine_velocities
 from elf_mas_pt.model.mas_in_block import (
     MASBlockWrapper, patch_cola_dit_with_mas, collect_mas_params,
-    set_context_all, clear_context_all,
+    set_context_all, clear_context_all, injection_param_count,
 )
+
+
+# Which variants are realizable in the in-block LoRA path, and how.
+#   data-side  : differ only in build_batch_inputs (context selection)
+#   arch-side  : differ in the MAS module wiring / which params train
+_LORA_DATA_VARIANTS = {"full", "identical_ctx", "context_shuffled"}
+_LORA_ARCH_VARIANTS = {"frozen_agents", "single_model"}
+_LORA_SUPPORTED = _LORA_DATA_VARIANTS | _LORA_ARCH_VARIANTS
+
+
+def assert_lora_variant_realized(variant, wrappers, n_train, n_total,
+                                 txt_dim, ctx_lat_dim, layer_indices,
+                                 inner_dim, num_heads):
+    """Fail loudly if a variant did not actually change the model/training.
+
+    Guards against the silent-fallback bug where --variant frozen_agents /
+    single_model trained a vanilla `full` model because the lora branch ignored
+    --variant."""
+    if variant not in _LORA_SUPPORTED:
+        raise ValueError(f"variant {variant!r} not supported in --lora_mode "
+                         f"(supported: {sorted(_LORA_SUPPORTED)})")
+    modes = {w.mode for w in wrappers}
+    if variant == "single_model":
+        assert modes == {"single"}, (
+            f"single_model must build single-mode wrappers; got modes={modes}. "
+            "The lora path silently fell back to the dual `full` architecture.")
+        ref_dual = 2 * len(layer_indices) * injection_param_count(
+            txt_dim, ctx_lat_dim, inner_dim, num_heads)
+        ratio = n_train / max(ref_dual, 1)
+        assert 0.85 <= ratio <= 1.15, (
+            f"single_model is not parameter-matched to dual B0: "
+            f"{n_train:,} vs {ref_dual:,} (ratio {ratio:.3f}); tune --single_inner.")
+    elif variant == "frozen_agents":
+        assert modes == {"dual"}, f"frozen_agents must be dual-mode; got {modes}"
+        assert 0 < n_train < n_total, (
+            f"frozen_agents must freeze the agent transforms (train gates only); "
+            f"got n_train={n_train:,} n_total={n_total:,} — nothing was frozen.")
+        assert n_train < 0.1 * n_total, (
+            f"frozen_agents should train only gates (<10% of params); "
+            f"got {n_train:,}/{n_total:,}.")
+    else:  # full / identical_ctx / context_shuffled — pure dual, train everything
+        assert modes == {"dual"}, f"{variant} must be dual-mode; got {modes}"
+        assert n_train == n_total, (
+            f"{variant} should train all MAS params; got {n_train:,}/{n_total:,}.")
 
 
 # ---------------------- batching ----------------------
@@ -523,6 +567,9 @@ def main():
                    help="Comma-separated DiT block indices to patch with MAS injection.")
     p.add_argument("--lora_inner", type=int, default=512)
     p.add_argument("--lora_heads", type=int, default=8)
+    p.add_argument("--single_inner", type=int, default=848,
+                   help="Inner dim of the single_model (B4) head; default 848 "
+                        "param-matches the dual B0 (2x512 heads) within ~1%.")
     p.add_argument("--lambda_ce", type=float, default=0.0,
                    help="Weight for token-CE auxiliary loss via frozen VAE decoder. "
                         "0 disables CE; values like 0.1/0.3/1.0 work as multipliers on velocity MSE.")
@@ -555,9 +602,14 @@ def main():
     # Build MAS model
     mas_wrappers = []
     if args.lora_mode:
+        if args.variant not in _LORA_SUPPORTED:
+            raise ValueError(f"variant {args.variant!r} not supported in --lora_mode "
+                             f"(supported: {sorted(_LORA_SUPPORTED)})")
         layer_indices = [int(x) for x in args.lora_layers.split(",")]
         # Inspect Cola DiT to get txt_dim
         txt_dim = backbone.dit.config.txt_dim if hasattr(backbone.dit.config, "txt_dim") else 2048
+        # B4 single_model uses a single concat-context head; all others are dual.
+        mas_mode = "single" if args.variant == "single_model" else "dual"
         mas_wrappers = patch_cola_dit_with_mas(
             backbone.dit,
             txt_dim=txt_dim,
@@ -566,6 +618,9 @@ def main():
             inner_dim=args.lora_inner,
             num_heads=args.lora_heads,
             block_size=backbone.block_size,
+            mode=mas_mode,
+            single_inner=args.single_inner,
+            single_heads=args.lora_heads,
         )
         # Ensure Cola DiT base params remain frozen
         for p_ in backbone.dit.parameters():
@@ -574,10 +629,26 @@ def main():
         mas_params = collect_mas_params(mas_wrappers)
         for p_ in mas_params:
             p_.requires_grad_(True)
-        n_params = sum(p.numel() for p in mas_params)
-        print(f"[train] LoRA-mode: patched layers {layer_indices}  trainable params: {n_params:,}")
+        n_total = sum(p.numel() for p in mas_params)
+        # B2 frozen_agents: freeze the agent transforms, train ONLY the gates.
+        if args.variant == "frozen_agents":
+            for w in mas_wrappers:
+                injs = [w.mas_s] if w.mode == "single" else [w.mas_a, w.mas_b]
+                for inj in injs:
+                    for name, p_ in inj.named_parameters():
+                        if not name.startswith("gate"):
+                            p_.requires_grad_(False)
+        train_params = [p for p in mas_params if p.requires_grad]
+        n_params = sum(p.numel() for p in train_params)
+        # GUARD: ensure the requested variant actually reshaped the model/training.
+        assert_lora_variant_realized(
+            args.variant, mas_wrappers, n_params, n_total,
+            txt_dim, backbone.latent_dim, layer_indices,
+            args.lora_inner, args.lora_heads)
+        print(f"[train] LoRA-mode variant={args.variant!r} mode={mas_mode} "
+              f"patched layers {layer_indices}  trainable params: {n_params:,}/{n_total:,}")
         mas_model = None
-        optim = torch.optim.AdamW(mas_params, lr=args.lr, weight_decay=1e-3)
+        optim = torch.optim.AdamW(train_params, lr=args.lr, weight_decay=1e-3)
     else:
         if args.variant == "single_model":
             mas_model = SingleHeadMASWrapper(
@@ -641,14 +712,22 @@ def main():
         out = Path(args.out_dir)
         out.mkdir(parents=True, exist_ok=True)
         if args.lora_mode:
+            mas_mode = mas_wrappers[0].mode if mas_wrappers else "dual"
+            if mas_mode == "single":
+                wrapper_states = [{"mas_s": w.mas_s.state_dict()} for w in mas_wrappers]
+            else:
+                wrapper_states = [
+                    {"mas_a": w.mas_a.state_dict(), "mas_b": w.mas_b.state_dict()}
+                    for w in mas_wrappers
+                ]
             ckpt = {
                 "lora_layer_indices": [int(x) for x in args.lora_layers.split(",")],
                 "lora_inner": args.lora_inner,
                 "lora_heads": args.lora_heads,
-                "wrappers": [
-                    {"mas_a": w.mas_a.state_dict(), "mas_b": w.mas_b.state_dict()}
-                    for w in mas_wrappers
-                ],
+                "mode": mas_mode,
+                "single_inner": args.single_inner,
+                "variant": args.variant,
+                "wrappers": wrapper_states,
             }
             torch.save(ckpt, out / "lora_state.pt")
         else:
