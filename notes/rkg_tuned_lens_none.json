@@ -1,0 +1,363 @@
+{
+  "layers_all": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23
+  ],
+  "mas_layers": [
+    8,
+    12,
+    16,
+    20
+  ],
+  "city_acc": [
+    0.013333333656191826,
+    0.019999999552965164,
+    0.01833333447575569,
+    0.02666666731238365,
+    0.009999999776482582,
+    0.008333333767950535,
+    0.023333333432674408,
+    0.023333333432674408,
+    0.01666666753590107,
+    0.013333333656191826,
+    0.015000000596046448,
+    0.01666666753590107,
+    0.015000000596046448,
+    0.019999999552965164,
+    0.028333334252238274,
+    0.030000001192092896,
+    0.019999999552965164,
+    0.019999999552965164,
+    0.01666666753590107,
+    0.023333333432674408,
+    0.011666666716337204,
+    0.02500000037252903,
+    0.023333333432674408,
+    0.02666666731238365
+  ],
+  "country_acc": [
+    0.046666666865348816,
+    0.05000000074505806,
+    0.04833333566784859,
+    0.03999999910593033,
+    0.04500000178813934,
+    0.038333334028720856,
+    0.03999999910593033,
+    0.04333333298563957,
+    0.046666666865348816,
+    0.03999999910593033,
+    0.04833333566784859,
+    0.04333333298563957,
+    0.04833333566784859,
+    0.05833333358168602,
+    0.0416666679084301,
+    0.054999999701976776,
+    0.038333334028720856,
+    0.05000000074505806,
+    0.05833333358168602,
+    0.07500000298023224,
+    0.0716666653752327,
+    0.07666666805744171,
+    0.05666666850447655,
+    0.0533333346247673
+  ],
+  "chance_city": 0.02,
+  "chance_country": 0.05,
+  "n_city_classes": 50,
+  "n_country_classes": 20,
+  "n_train": 2000,
+  "n_eval": 600,
+  "qualitative": [
+    {
+      "gold_city": "Skopje",
+      "gold_country": "Denmark",
+      "question": "What country does Xavier live in?",
+      "by_layer": {
+        "8": {
+          "city_top3": [
+            "Santiago",
+            "Dakar",
+            "Oslo"
+          ],
+          "country_top3": [
+            "Belgium",
+            "Poland",
+            "Norway"
+          ]
+        },
+        "12": {
+          "city_top3": [
+            "Prague",
+            "Bucharest",
+            "Dakar"
+          ],
+          "country_top3": [
+            "Belgium",
+            "Norway",
+            "Poland"
+          ]
+        },
+        "16": {
+          "city_top3": [
+            "Prague",
+            "Bogota",
+            "Riga"
+          ],
+          "country_top3": [
+            "Austria",
+            "Norway",
+            "Belgium"
+          ]
+        },
+        "20": {
+          "city_top3": [
+            "Budapest",
+            "Tallinn",
+            "Prague"
+          ],
+          "country_top3": [
+            "Ireland",
+            "Norway",
+            "Poland"
+          ]
+        },
+        "23": {
+          "city_top3": [
+            "Budapest",
+            "Tallinn",
+            "Bucharest"
+          ],
+          "country_top3": [
+            "Poland",
+            "Norway",
+            "Ireland"
+          ]
+        }
+      }
+    },
+    {
+      "gold_city": "Santiago",
+      "gold_country": "Hungary",
+      "question": "What country does Oscar live in?",
+      "by_layer": {
+        "8": {
+          "city_top3": [
+            "Nairobi",
+            "Tallinn",
+            "Oslo"
+          ],
+          "country_top3": [
+            "Poland",
+            "Italy",
+            "Iceland"
+          ]
+        },
+        "12": {
+          "city_top3": [
+            "Nairobi",
+            "Dublin",
+            "Tallinn"
+          ],
+          "country_top3": [
+            "Poland",
+            "Italy",
+            "Iceland"
+          ]
+        },
+        "16": {
+          "city_top3": [
+            "Nairobi",
+            "Tirana",
+            "Reykjavik"
+          ],
+          "country_top3": [
+            "Iceland",
+            "Poland",
+            "Austria"
+          ]
+        },
+        "20": {
+          "city_top3": [
+            "Warsaw",
+            "Nairobi",
+            "Bangkok"
+          ],
+          "country_top3": [
+            "Italy",
+            "Iceland",
+            "Austria"
+          ]
+        },
+        "23": {
+          "city_top3": [
+            "Nairobi",
+            "Amsterdam",
+            "Tallinn"
+          ],
+          "country_top3": [
+            "Italy",
+            "Poland",
+            "Iceland"
+          ]
+        }
+      }
+    },
+    {
+      "gold_city": "Paris",
+      "gold_country": "Poland",
+      "question": "What country does Carmen live in?",
+      "by_layer": {
+        "8": {
+          "city_top3": [
+            "Belgrade",
+            "Bangkok",
+            "Brussels"
+          ],
+          "country_top3": [
+            "Norway",
+            "Iceland",
+            "Belgium"
+          ]
+        },
+        "12": {
+          "city_top3": [
+            "Santiago",
+            "Belgrade",
+            "Amsterdam"
+          ],
+          "country_top3": [
+            "Czechia",
+            "Belgium",
+            "Norway"
+          ]
+        },
+        "16": {
+          "city_top3": [
+            "Santiago",
+            "Belgrade",
+            "Sarajevo"
+          ],
+          "country_top3": [
+            "Czechia",
+            "Belgium",
+            "Iceland"
+          ]
+        },
+        "20": {
+          "city_top3": [
+            "Santiago",
+            "Belgrade",
+            "Sarajevo"
+          ],
+          "country_top3": [
+            "Norway",
+            "Belgium",
+            "Iceland"
+          ]
+        },
+        "23": {
+          "city_top3": [
+            "Santiago",
+            "Belgrade",
+            "Manila"
+          ],
+          "country_top3": [
+            "Norway",
+            "Czechia",
+            "Belgium"
+          ]
+        }
+      }
+    },
+    {
+      "gold_city": "Stockholm",
+      "gold_country": "Czechia",
+      "question": "What country does Anna live in?",
+      "by_layer": {
+        "8": {
+          "city_top3": [
+            "Lima",
+            "Santiago",
+            "LaPaz"
+          ],
+          "country_top3": [
+            "Italy",
+            "Czechia",
+            "Netherlands"
+          ]
+        },
+        "12": {
+          "city_top3": [
+            "Lima",
+            "Sofia",
+            "Bogota"
+          ],
+          "country_top3": [
+            "Italy",
+            "Czechia",
+            "Portugal"
+          ]
+        },
+        "16": {
+          "city_top3": [
+            "Sofia",
+            "Belgrade",
+            "Madrid"
+          ],
+          "country_top3": [
+            "Italy",
+            "Portugal",
+            "Iceland"
+          ]
+        },
+        "20": {
+          "city_top3": [
+            "Lima",
+            "Sofia",
+            "LaPaz"
+          ],
+          "country_top3": [
+            "Czechia",
+            "Italy",
+            "Portugal"
+          ]
+        },
+        "23": {
+          "city_top3": [
+            "Lima",
+            "Belgrade",
+            "LaPaz"
+          ],
+          "country_top3": [
+            "Czechia",
+            "Portugal",
+            "Italy"
+          ]
+        }
+      }
+    }
+  ],
+  "note": "TRAINED DIAGNOSTIC PROBE (linear, per-layer). NOT the model's native output. Feature=mean-pooled answer-block hidden at step0/t=1. hop1=bridge city, hop2=answer country."
+}

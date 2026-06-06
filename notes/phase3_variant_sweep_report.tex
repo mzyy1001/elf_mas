@@ -1,0 +1,280 @@
+\documentclass[10pt]{article}
+
+\usepackage[letterpaper,margin=0.95in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{float}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{caption}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\captionsetup{font=small,labelfont=bf,skip=4pt}
+\titlespacing*{\section}{0pt}{9pt}{4pt}
+\setlength{\parskip}{2pt}
+\setlist[itemize]{leftmargin=1.4em,itemsep=1pt,topsep=2pt,parsep=0pt}
+\renewcommand{\arraystretch}{1.2}
+\newcommand{\ctxa}{$\text{ctx}_A$}
+\newcommand{\ctxb}{$\text{ctx}_B$}
+
+\begin{document}
+
+\begin{center}
+{\Large\bfseries Coupled Multi-Agent Language Flows on a Frozen 1.8B\\[2pt]
+Diffusion LM: A Control-Variant Diagnostic Report}\\[6pt]
+{\small Project \textbf{ELF-MAS} \,$\cdot$\, Phase 3 \,$\cdot$\, Dataset \texttt{synth\_2fact\_v1}
+\,$\cdot$\, Backbone Cola-DLM (1.8B, frozen) \,$\cdot$\, Seed 0 \,$\cdot$\, 2026-06-03}
+\end{center}
+\vspace{2pt}
+\hrule
+\vspace{6pt}
+
+This report documents the current experimental evidence for role-conditioned agent
+specialization in the Phase~3 Cola+MAS setup. It describes the synthetic diagnostic
+dataset and its provenance, the model/agent wiring, the decode-and-evaluate pipeline, the
+control variants, the lesion-matrix results obtained so far, and a known implementation
+bug (now fixed and guarded) that invalidated two earlier baselines.
+
+\section{Dataset Construction: \texttt{synth\_2fact\_v1}}
+\texttt{synth\_2fact\_v1} is \textbf{not} a public or downloaded benchmark. It is a
+\textbf{procedurally generated synthetic diagnostic dataset}, built specifically so that
+the correct per-agent lesion behavior is known by construction.
+
+\noindent\textbf{Provenance.}
+\begin{itemize}
+\item Generator: \texttt{src/elf\_mas/data/synth\_2fact.py}.
+\item Design specification: \texttt{notes/synthetic\_task\_v1.md}.
+\item Generated deterministically with \texttt{numpy.random.default\_rng(seed=42)}.
+\item Saved as a HuggingFace \texttt{Dataset} under \texttt{data/synth\_2fact\_v1/\{train,eval\}}.
+\end{itemize}
+
+\noindent\textbf{Closed-world knowledge graph.} A small fixed vocabulary --- 100 people,
+50 cities, 20 countries, 40 occupations, 20 hobbies --- combined through five relation
+templates (e.g.\ \texttt{lives\_in}: ``X lives in Y''; \texttt{city\_in}: ``Y is in X'';
+\texttt{capital\_of}, \texttt{works\_as}, \texttt{hobby\_of}).
+
+\noindent\textbf{Item contents.} Each item contains a question $Q$, a private context
+\ctxa{} (given only to Agent~A), a private context \ctxb{} (given only to Agent~B), and a
+short gold answer. Each context carries one query-relevant fact (when applicable) plus
+2--3 distractor facts of the same schema, so the model must use its private context
+conditionally rather than copy.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabular}{@{}p{1.0cm} p{3.1cm} p{2.7cm} p{2.7cm} p{1.2cm} p{3.2cm}@{}}
+\toprule
+\textbf{Bucket} & \textbf{Question $Q$} & \textbf{\ctxa{} relevant fact} & \textbf{\ctxb{} relevant fact} & \textbf{Gold} & \textbf{Why this bucket} \\
+\midrule
+AB        & ``What country is the city where Alice lives in?'' & ``Alice lives in Berlin.'' & ``Berlin is in Germany.'' & Germany & Needs \texttt{lives\_in} (A) composed with \texttt{city\_in} (B) \\
+A-only    & ``What does Alice do for work?'' & ``Alice works as a pilot.'' & (distractors only) & pilot & Answer fact lives only in A \\
+B-only    & ``What country is Cairo in?'' & (distractors only) & ``Cairo is in Egypt.'' & Egypt & Answer fact lives only in B \\
+neither   & ``What hobby does Charlie enjoy?'' & (no relevant fact) & (no relevant fact) & unknown & Unanswerable; tests confabulation suppression \\
+\bottomrule
+\end{tabular}
+\caption{Concrete items, one per bucket. Bucket membership is the ground truth for which
+agent's private context is strictly necessary.}
+\end{table}
+
+\section{Dataset Distribution and Bucket Semantics}
+Every item belongs to exactly one of four buckets, defined by which private context is
+required to answer $Q$: \textbf{AB} (needs both, a two-hop composition), \textbf{A-only}
+(needs A), \textbf{B-only} (needs B), and \textbf{neither} (unanswerable from either).
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l r r r r@{}}
+\toprule
+ & \textbf{AB} & \textbf{A-only} & \textbf{B-only} & \textbf{neither} \\
+\midrule
+Intended proportion          & 40\% & 25\%   & 25\%   & 10\%  \\
+Observed eval subset ($n{=}200$) & 82 (41.0\%) & 48 (24.0\%) & 53 (26.5\%) & 17 (8.5\%) \\
+\bottomrule
+\end{tabular}
+\caption{Intended bucket proportions vs.\ the observed distribution of the 200-item eval
+subset used for the lesion matrix in \S7. The AB (two-hop) bucket is the headline bucket
+($n{=}82$, ${\approx}41\%$). Full splits are train $50$k / eval $5$k.}
+\end{table}
+
+\noindent\textbf{Why the dataset is useful.} Because the necessary context per item is known
+by construction, the dataset yields a \emph{ground-truth lesion expectation}:
+\begin{itemize}
+\item Removing Agent~A should hurt \textbf{AB} and \textbf{A-only}.
+\item Removing Agent~B should hurt \textbf{AB} and \textbf{B-only}.
+\item Removing both should collapse \textbf{AB}/\textbf{A-only}/\textbf{B-only}, while
+\textbf{neither} stays at the ``unknown'' floor.
+\end{itemize}
+This makes lesion specificity directly checkable. The task is a \textbf{controlled
+synthetic diagnostic}, not a standard public multi-agent benchmark; it is intended to test
+the mechanism, not to claim downstream performance.
+
+\section{Model and Agent Connection}
+\textbf{Frozen backbone.} Cola-DLM: a DiT ($1829.9$M params) and a VAE ($501.9$M params),
+both frozen throughout. \textbf{MAS injection.} Multi-agent structure is added as in-block,
+LoRA-style per-agent cross-attention at DiT layers $\{8,12,16,20\}$ (inner dim $512$,
+$8$ heads). \textbf{Two-agent structure.} Agent~A receives \ctxa{} and Agent~B receives
+\ctxb{}; the question $Q$ is supplied as prefix conditioning. Private contexts enter the
+model \emph{only} through the MAS heads (not the prefix). \textbf{Trainable residual path.}
+Each agent's cross-attention produces a velocity residual that is gated and added into the
+frozen backbone's hidden state; the gate bias is initialized at $-2$ (initial gate
+${\approx}0.12$) and the residual output projection is zero-initialized (untrained
+injection is a no-op). Total trainable: ${\approx}25.3$M params (dual configuration).
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l l@{}}
+\toprule
+\textbf{Stage} & \textbf{Role} \\
+\midrule
+Question $Q$              & prefix conditioning (KV-cache priming; frozen backbone) \\
+\ctxa{} $\rightarrow$ Agent~A & private context, enters only via MAS cross-attn head A \\
+\ctxb{} $\rightarrow$ Agent~B & private context, enters only via MAS cross-attn head B \\
+MAS residual injection    & gated per-agent velocity residuals added at DiT layers $\{8,12,16,20\}$ \\
+Frozen Cola-DLM DiT        & produces velocity $v$ over the latent answer block \\
+Frozen VAE decoder         & decodes predicted clean latents to answer tokens (\S5) \\
+\bottomrule
+\end{tabular}
+\caption{Data flow. Only the per-agent cross-attention heads and gates are trainable; the
+DiT and VAE are frozen.}
+\end{table}
+
+\section{Decoder / Evaluation Pipeline}
+\textbf{Generation.} The answer block is produced by rectified-flow denoising of a latent
+sequence: the DiT (with MAS residuals) predicts a velocity $v$, integrated by Euler steps
+from noise toward the clean latent. \textbf{Decoding via the frozen VAE.} The clean-latent
+estimate uses the $x$-prediction shortcut $z_{\text{clean}} = z_t - t\,v$, which is decoded
+to tokens through the frozen Cola VAE. \textbf{Auxiliary loss.} During training a token
+cross-entropy loss ($\lambda_{\text{CE}}{=}0.3$) is applied to these VAE-decoded tokens, in
+addition to the velocity MSE; it pressures decode-correct (not merely type-correct) latents.
+
+\noindent\textbf{Primary metric: per-token-ID exact match.} The gold answer is tokenized
+and the first $K$ predicted token IDs are compared directly. \textbf{Text-level EM is not
+used as the primary metric}: a decode-strip artifact joins the answer token to trailing
+pad-region tokens (e.g.\ \texttt{"Belgium"} $+$ trailing region
+$\rightarrow$ \texttt{"BelgiumTor"}), so text-EM can read $0\%$ even when the first answer
+token is correct.
+
+\noindent\textbf{Inference settings.} $T_{\text{inf}}{=}16$ Euler steps; prefix-conditioned
+with KV-cache priming; the lesion matrix is computed by ablating gates/contexts at sample
+time (\texttt{AB} both agents active; \texttt{A\_only} keep~A; \texttt{B\_only} keep~B;
+\texttt{Neither} both removed).
+
+\section{Variant Definitions}
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l l l p{7.6cm}@{}}
+\toprule
+\textbf{ID} & \textbf{Name} & \textbf{Type} & \textbf{Purpose} \\
+\midrule
+B0 & \texttt{full}             & ---               & Two role-conditioned agents with private \ctxa{}, \ctxb{} (the model under test). \\
+B6 & \texttt{identical\_ctx}   & data-side         & Both agents receive the same context: tests whether \emph{distinct} private contexts matter. \\
+B7 & \texttt{context\_shuffled}& data-side         & Contexts permuted across examples: breaks the context--question correspondence. \\
+B4 & \texttt{single\_model}    & architecture-side & One parameter-matched head over $\text{concat}(\text{ctx}_A,\text{ctx}_B)$: isolates coupling from raw capacity. \\
+B2 & \texttt{frozen\_agents}   & architecture-side & Dual architecture with agent transforms frozen (gates-only training): tests whether trained agent transforms are necessary. \\
+\bottomrule
+\end{tabular}
+\caption{Variants. Data-side variants change only the context fed to the model;
+architecture-side variants change the MAS wiring or which parameters train.}
+\end{table}
+
+\section{Results: Lesion Matrix}
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabular}{@{}l r r r r r r p{3.2cm}@{}}
+\toprule
+\textbf{Variant} & \textbf{Full} & \textbf{rmA} & \textbf{rmB} & \textbf{rm\_both} &
+$\boldsymbol{\Delta_a}$ & $\boldsymbol{\Delta_b}$ & \textbf{Interpretation} \\
+ & \textbf{EM} & \footnotesize(B\_only) & \footnotesize(A\_only) & \footnotesize(Neither) & & & \\
+\midrule
+\textbf{B0 \texttt{full}}            & \textbf{0.585} & 0.159 & 0.000 & 0.000 & $+0.427$ & $+0.585$ & Both agents causally load-bearing; B more critical than A \\
+\textbf{B4 \texttt{single\_model}}   & 0.317 & 0.305 & 0.159 & 0.000 & $+0.012$ & $+0.159$ & Param-matched single head; ${\approx}$half of B0; barely uses A's context \\
+\textbf{B6 \texttt{identical\_ctx}}  & 0.256 & 0.049 & 0.012 & 0.000 & $+0.207$ & $+0.244$ & EM more than halves; lesion asymmetry compresses \\
+\textbf{B7 \texttt{context\_shuffled}} & 0.061 & 0.012 & 0.012 & 0.000 & $+0.049$ & $+0.049$ & Near-collapse; lesions small and symmetric \\
+\textbf{B2 \texttt{frozen\_agents}}  & 0.000 & 0.000 & 0.000 & 0.000 & $+0.000$ & $+0.000$ & No-MAS floor; trained agent residuals necessary \\
+\bottomrule
+\end{tabular}
+\caption{AB (two-hop) bucket, per-token EM (fraction in $[0,1]$), single seed (seed 0); rows
+ordered by Full EM. $\Delta_a = \text{EM(full)} - \text{EM(remove A)}$;
+$\Delta_b = \text{EM(full)} - \text{EM(remove B)}$. \texttt{rmA}/\texttt{B\_only} keeps only
+Agent~B; \texttt{rmB}/\texttt{A\_only} keeps only Agent~A. All five variants are now valid and
+trained from distinct checkpoints (\S\ref{sec:bug}). The B0 row reproduces a prior standalone
+30k run ($0.585$) to the reported precision.}
+\end{table}
+
+\noindent\textbf{Data-side controls.} The monotone ordering
+$\text{B0}\,0.585 \gg \text{B6}\,0.256 \gg \text{B7}\,0.061$, with the lesion asymmetry
+strongest in B0 ($\Delta_b{=}{+}0.585 > \Delta_a{=}{+}0.427$), compressing under B6, and
+collapsing to near-symmetric/near-zero under B7, is consistent with the ground-truth lesion
+expectation of \S3 and supports that performance is driven by role-distinct, correctly-paired
+private contexts rather than the two-head architecture alone (graded: B6 retains partial signal).
+
+\noindent\textbf{Architecture-side controls.} At matched parameters (${\approx}25.3$M vs.\
+$25.5$M), B0 ($0.585$) nearly doubles the single-head B4 ($0.317$), which supports that the
+benefit comes from coupled role-conditioning rather than raw capacity; B4's lopsided lesions
+($\Delta_a{=}{+}0.012$, $\Delta_b{=}{+}0.159$) indicate the single head leans on B's context and
+barely integrates A's---the failure mode expected on a two-hop bucket. B2 (\texttt{frozen\_agents})
+collapses to $0.000$ (highest training loss, $3.82$), supporting that \emph{trained} agent
+residuals---not gates alone---are necessary. These conclusions are single-seed (see Next Steps).
+
+\section{Implementation Bug and Validity Notes}\label{sec:bug}
+\textbf{Silent fallback bug.} In \texttt{--lora\_mode}, the variants \texttt{frozen\_agents}
+(B2) and \texttt{single\_model} (B4) previously built the same dual \texttt{full} model: the
+LoRA branch never branched on \texttt{--variant}. The prior B0/B2/B4 checkpoints were
+therefore byte-identical (md5 \texttt{4c64d210\ldots}, identical final loss $1.7658$), and
+those B2/B4 results are invalid. \textbf{The earlier B2/B4 results have been discarded and
+must not be cited.} The valid variants (B0/B6/B7) are unaffected because their behavior is
+realized on the data side. (Separately, an initial parse transposed the eval-JSON axes,
+giving an incorrect B0 \texttt{rmA}$=0.358$; the corrected value is $0.159$, used above.)
+
+\noindent\textbf{Guard added.} A runtime assertion (\texttt{assert\_lora\_variant\_realized})
+now fails loudly unless the requested variant actually reshaped the model:
+\texttt{single\_model} must build single-mode wrappers and be parameter-matched
+($0.85$--$1.15\times$ the dual reference); \texttt{frozen\_agents} must have $<10\%$ of MAS
+parameters trainable; \texttt{full}/\texttt{identical\_ctx}/\texttt{context\_shuffled} must
+train $100\%$. The eval path also warns when \texttt{--variant} disagrees with the
+checkpoint's recorded variant.
+
+\section{Current Results and Next Steps}\label{sec:status}
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l l l@{}}
+\toprule
+\textbf{Variant} & \textbf{Status} & \textbf{Note} \\
+\midrule
+B0 \texttt{full}              & completed, valid   & headline $0.585$ EM \\
+B4 \texttt{single\_model}     & completed, valid   & $0.317$; param-matched capacity control \\
+B6 \texttt{identical\_ctx}    & completed, valid   & $0.256$; data-side control \\
+B7 \texttt{context\_shuffled} & completed, valid   & $0.061$; data-side control \\
+B2 \texttt{frozen\_agents}    & completed, valid   & $0.000$; no-MAS floor \\
+seeds 1--2                    & not yet run        & all variants single-seed so far \\
+\midrule
+B2/B4 (prior sweep)           & invalid, discarded & silent fallback to \texttt{full} (\S\ref{sec:bug}) \\
+\bottomrule
+\end{tabular}
+\caption{Run status. All current results are single-seed (seed 0).}
+\end{table}
+
+\noindent\textbf{Conclusion.} All five variants are now valid. On this controlled synthetic
+diagnostic task the results support role-conditioned specialization: (i)~the AB-bucket EM and
+its lesion asymmetry degrade monotonically as role-relevant input structure is removed
+(B0~$\gg$~B6~$\gg$~B7), matching the by-construction lesion expectation; (ii)~at matched
+parameters the coupled model nearly doubles a single concat-context head
+(B0~$0.585$ vs.\ B4~$0.317$), supporting that the gain is from coupling rather than capacity;
+and (iii)~freezing the agent transforms collapses performance to the no-MAS floor
+(B2~$0.000$), supporting that trained agent residuals are necessary. All results are
+single-seed, so effect \emph{magnitudes} are not yet bounded by variance, though the
+qualitative ordering is consistent across four independent controls.
+
+\noindent\textbf{Next steps.} (i)~Add seeds 1--2 for all five variants to obtain error bars
+(idle GPUs currently permit parallel execution). (ii)~Commit the dataset generator
+(\texttt{src/elf\_mas/data/synth\_2fact.py}) for reproducibility --- it is currently present
+only on the compute server and not tracked in the repository.
+
+\end{document}

@@ -1,0 +1,193 @@
+\documentclass[10pt]{article}
+
+\usepackage[letterpaper,margin=0.95in]{geometry}
+\usepackage[UTF8,fontset=fandol]{ctex}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{float}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{caption}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\captionsetup{font=small,labelfont=bf,skip=4pt}
+\titlespacing*{\section}{0pt}{9pt}{4pt}
+\setlength{\parskip}{2pt}
+\setlist[itemize]{leftmargin=1.6em,itemsep=1pt,topsep=2pt,parsep=0pt}
+\renewcommand{\arraystretch}{1.25}
+\newcommand{\ctxa}{$\text{ctx}_A$}
+\newcommand{\ctxb}{$\text{ctx}_B$}
+
+\begin{document}
+
+\begin{center}
+{\Large\bfseries 在冻结的 1.8B 扩散语言模型上的\\[2pt]
+耦合多智能体语言流：控制变量诊断报告}\\[6pt]
+{\small 项目 \textbf{ELF-MAS} \,$\cdot$\, 阶段 3 \,$\cdot$\, 数据集 \texttt{synth\_2fact\_v1}
+\,$\cdot$\, 骨干 Cola-DLM（1.8B，冻结）\,$\cdot$\, 随机种子 0 \,$\cdot$\, 2026-06-03}
+\end{center}
+\vspace{2pt}
+\hrule
+\vspace{6pt}
+
+本报告记录第 3 阶段 Cola+MAS 设置中关于\textbf{角色条件化智能体专精化}的当前实验证据。内容涵盖：合成诊断数据集及其来源、模型与智能体的连接方式、解码与评测流程、各控制变体、目前已获得的消融矩阵结果，以及一个曾使两个基线失效、现已修复并加入守卫的实现缺陷。
+
+\section{数据集构建：\texttt{synth\_2fact\_v1}}
+\texttt{synth\_2fact\_v1} \textbf{不是}公开或下载得到的基准数据集，而是一个\textbf{程序化生成的合成诊断数据集}，其构造方式保证了每个智能体的正确消融行为是\emph{由构造已知}的。
+
+\noindent\textbf{来源。}
+\begin{itemize}
+\item 生成器：\texttt{src/elf\_mas/data/synth\_2fact.py}。
+\item 设计规范：\texttt{notes/synthetic\_task\_v1.md}。
+\item 使用 \texttt{numpy.random.default\_rng(seed=42)} 确定性生成。
+\item 以 HuggingFace \texttt{Dataset} 形式保存于 \texttt{data/synth\_2fact\_v1/\{train,eval\}}。
+\end{itemize}
+
+\noindent\textbf{封闭世界知识图谱。} 固定的小词表——100 个人物、50 座城市、20 个国家、40 种职业、20 种爱好——通过五条关系模板组合（例如 \texttt{lives\_in}：``X lives in Y''；\texttt{city\_in}：``Y is in X''；以及 \texttt{capital\_of}、\texttt{works\_as}、\texttt{hobby\_of}）。
+
+\noindent\textbf{条目内容。} 每个条目包含一个问题 $Q$、仅提供给智能体 A 的私有上下文 \ctxa{}、仅提供给智能体 B 的私有上下文 \ctxb{}，以及一个简短的标准答案。每个上下文携带一条与问题相关的事实（若适用）外加 2--3 条同模式的干扰项，使模型必须\emph{有条件地}使用其私有上下文，而非简单复制。
+
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabular}{@{}p{0.9cm} p{3.0cm} p{2.6cm} p{2.6cm} p{1.1cm} p{3.3cm}@{}}
+\toprule
+\textbf{桶} & \textbf{问题 $Q$} & \textbf{\ctxa{} 相关事实} & \textbf{\ctxb{} 相关事实} & \textbf{标准答案} & \textbf{该桶的依据} \\
+\midrule
+AB        & ``What country is the city where Alice lives in?'' & ``Alice lives in Berlin.'' & ``Berlin is in Germany.'' & Germany & 需将 \texttt{lives\_in}（A）与 \texttt{city\_in}（B）复合 \\
+A-only    & ``What does Alice do for work?'' & ``Alice works as a pilot.'' & （仅干扰项） & pilot & 答案事实只在 A 中 \\
+B-only    & ``What country is Cairo in?'' & （仅干扰项） & ``Cairo is in Egypt.'' & Egypt & 答案事实只在 B 中 \\
+neither   & ``What hobby does Charlie enjoy?'' & （无相关事实） & （无相关事实） & unknown & 不可回答；检验虚构抑制 \\
+\bottomrule
+\end{tabular}
+\caption{每个桶各一条具体样例。桶归属即"哪个智能体的私有上下文严格必需"的标准答案。}
+\end{table}
+
+\section{数据集分布与桶语义}
+每个条目恰属于四个桶之一，依据是回答 $Q$ 所需的私有上下文：\textbf{AB}（两者皆需，即两跳复合）、\textbf{A-only}（需 A）、\textbf{B-only}（需 B）、\textbf{neither}（任一上下文均无法回答）。
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l r r r r@{}}
+\toprule
+ & \textbf{AB} & \textbf{A-only} & \textbf{B-only} & \textbf{neither} \\
+\midrule
+设计比例                       & 40\% & 25\%   & 25\%   & 10\%  \\
+评测子集（观测，$n{=}200$）    & 82（41.0\%） & 48（24.0\%） & 53（26.5\%） & 17（8.5\%） \\
+\bottomrule
+\end{tabular}
+\caption{设计的桶比例与第 7 节消融矩阵所用 200 条评测子集的实际分布对比。AB（两跳）桶为主桶（$n{=}82$，约 $41\%$）。完整划分为训练集 $50$k / 评测集 $5$k。}
+\end{table}
+
+\noindent\textbf{该数据集的价值。} 由于每条样例所需的上下文由构造已知，数据集提供了一个\emph{由构造确定的消融预期}：
+\begin{itemize}
+\item 移除智能体 A 应损害 \textbf{AB} 与 \textbf{A-only}。
+\item 移除智能体 B 应损害 \textbf{AB} 与 \textbf{B-only}。
+\item 同时移除二者应使 \textbf{AB}/\textbf{A-only}/\textbf{B-only} 崩溃，而 \textbf{neither} 维持在 "unknown" 下限。
+\end{itemize}
+这使得消融的特异性可以被直接检验。该任务是一个\textbf{受控的合成诊断任务}，并非标准的公开多智能体基准；其目的是检验机制，而非声称下游性能。
+
+\section{模型与智能体连接}
+\textbf{冻结骨干。} Cola-DLM：DiT（$1829.9$M 参数）与 VAE（$501.9$M 参数），全程冻结。\textbf{MAS 注入。} 多智能体结构以块内、LoRA 风格的逐智能体交叉注意力形式，注入到 DiT 的第 $\{8,12,16,20\}$ 层（内部维度 $512$，$8$ 个注意力头）。\textbf{双智能体结构。} 智能体 A 接收 \ctxa{}，智能体 B 接收 \ctxb{}；问题 $Q$ 以前缀条件方式提供。私有上下文\emph{仅}经由 MAS 头进入模型（不进入前缀）。\textbf{可训练残差通路。} 每个智能体的交叉注意力产生一个速度残差，经门控后加入冻结骨干的隐状态；门控偏置初始化为 $-2$（初始门控值约 $0.12$），残差输出投影零初始化（未训练时注入为恒等）。可训练参数总量约 $25.3$M（双头配置）。
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l l@{}}
+\toprule
+\textbf{阶段} & \textbf{作用} \\
+\midrule
+问题 $Q$                       & 前缀条件（KV 缓存预热；骨干冻结） \\
+\ctxa{} $\rightarrow$ 智能体 A & 私有上下文，仅经 MAS 交叉注意力头 A 注入 \\
+\ctxb{} $\rightarrow$ 智能体 B & 私有上下文，仅经 MAS 交叉注意力头 B 注入 \\
+MAS 残差注入                   & 在 DiT 第 $\{8,12,16,20\}$ 层加入门控的逐智能体速度残差 \\
+冻结 Cola-DLM DiT              & 在隐答案块上产生速度 $v$ \\
+冻结 VAE 解码器                & 将预测的干净隐变量解码为答案 token（见第 4 节） \\
+\bottomrule
+\end{tabular}
+\caption{数据流。仅逐智能体交叉注意力头与门控可训练；DiT 与 VAE 冻结。}
+\end{table}
+
+\section{解码 / 评测流程}
+\textbf{生成。} 答案块通过对隐序列进行整流流（rectified-flow）去噪得到：DiT（含 MAS 残差）预测速度 $v$，由欧拉步从噪声向干净隐变量积分。\textbf{经冻结 VAE 解码。} 干净隐变量估计采用 $x$-预测捷径 $z_{\text{clean}} = z_t - t\,v$，再经冻结的 Cola VAE 解码为 token。\textbf{辅助损失。} 训练时在速度 MSE 之外，对这些 VAE 解码出的 token 施加 token 交叉熵损失（$\lambda_{\text{CE}}{=}0.3$），以直接施压于"解码正确"（而非仅"类型正确"）的隐变量。
+
+\noindent\textbf{主指标：逐 token-ID 精确匹配（EM）。} 对标准答案做 token 化，并直接比较前 $K$ 个预测 token-ID。\textbf{文本级 EM 不作为主指标}：存在解码拼接伪影，会把答案 token 与其后的填充区 token 连在一起（例如 \texttt{"Belgium"} $+$ 尾部区 $\rightarrow$ \texttt{"BelgiumTor"}），因此即便首个答案 token 正确，文本级 EM 仍可能读为 $0\%$。
+
+\noindent\textbf{推理设置。} $T_{\text{inf}}{=}16$ 个欧拉步；前缀条件并配合 KV 缓存预热；消融矩阵通过在采样时对门控/上下文做消融得到（\texttt{AB} 两智能体均激活；\texttt{A\_only} 仅保留 A；\texttt{B\_only} 仅保留 B；\texttt{Neither} 同时移除二者）。
+
+\section{变体定义}
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l l l p{7.0cm}@{}}
+\toprule
+\textbf{编号} & \textbf{名称} & \textbf{类型} & \textbf{目的} \\
+\midrule
+B0 & \texttt{full}             & ---               & 具有私有 \ctxa{}、\ctxb{} 的两个角色条件化智能体（被测模型）。 \\
+B6 & \texttt{identical\_ctx}   & 数据侧            & 两个智能体接收相同上下文：检验\emph{差异化}的私有上下文是否重要。 \\
+B7 & \texttt{context\_shuffled}& 数据侧            & 跨样本打乱上下文：破坏上下文--问题的对应关系。 \\
+B4 & \texttt{single\_model}    & 架构侧            & 在 $\text{concat}(\text{ctx}_A,\text{ctx}_B)$ 上的单个参数对齐头：将耦合与纯容量分离。 \\
+B2 & \texttt{frozen\_agents}   & 架构侧            & 双头架构但冻结智能体变换（仅训练门控）：检验训练后的智能体变换是否必要。 \\
+\bottomrule
+\end{tabular}
+\caption{各变体。数据侧变体仅改变馈入模型的上下文；架构侧变体改变 MAS 接线或参与训练的参数。}
+\end{table}
+
+\section{结果：消融矩阵}
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabular}{@{}l r r r r r r p{2.9cm}@{}}
+\toprule
+\textbf{变体} & \textbf{Full} & \textbf{移除A} & \textbf{移除B} & \textbf{移除二者} &
+$\boldsymbol{\Delta_a}$ & $\boldsymbol{\Delta_b}$ & \textbf{解读} \\
+ & \textbf{EM} & \footnotesize(B\_only) & \footnotesize(A\_only) & \footnotesize(Neither) & & & \\
+\midrule
+\textbf{B0 \texttt{full}}            & \textbf{0.585} & 0.159 & 0.000 & 0.000 & $+0.427$ & $+0.585$ & 两智能体均具因果作用；B 比 A 更关键 \\
+\textbf{B4 \texttt{single\_model}}   & 0.317 & 0.305 & 0.159 & 0.000 & $+0.012$ & $+0.159$ & 参数对齐单头；约为 B0 一半；几乎不用 A 的上下文 \\
+\textbf{B6 \texttt{identical\_ctx}}  & 0.256 & 0.049 & 0.012 & 0.000 & $+0.207$ & $+0.244$ & EM 下降过半；消融不对称性被压缩 \\
+\textbf{B7 \texttt{context\_shuffled}} & 0.061 & 0.012 & 0.012 & 0.000 & $+0.049$ & $+0.049$ & 近乎崩溃；消融量小且对称 \\
+\textbf{B2 \texttt{frozen\_agents}}  & 0.000 & 0.000 & 0.000 & 0.000 & $+0.000$ & $+0.000$ & 无 MAS 下限；训练后的智能体残差必要 \\
+\bottomrule
+\end{tabular}
+\caption{AB（两跳）桶，逐 token EM（取值 $[0,1]$），单一随机种子（种子 0）；按 Full EM 排序。$\Delta_a = \text{EM(full)} - \text{EM(移除 A)}$；$\Delta_b = \text{EM(full)} - \text{EM(移除 B)}$。\texttt{移除A}/\texttt{B\_only} 仅保留智能体 B；\texttt{移除B}/\texttt{A\_only} 仅保留智能体 A。五个变体现均有效、且来自互不相同的检查点（见第 \ref{sec:bug} 节）。B0 行复现了此前一次独立的 30k 运行（$0.585$），与所报精度一致。}
+\end{table}
+
+\noindent{}\textbf{数据侧对照。} 单调排序 $\text{B0}\,0.585 \gg \text{B6}\,0.256 \gg \text{B7}\,0.061$，其中消融不对称性在 B0 最强（$\Delta_b{=}{+}0.585 > \Delta_a{=}{+}0.427$），在 B6 被压缩，在 B7 坍缩为近乎对称、近乎为零；这与第 3 节由构造确定的消融预期一致，支持"性能由\emph{角色差异化、且正确配对}的私有上下文驱动，而非仅由双头架构本身驱动"（渐变式：B6 仍保留部分信号）。
+
+\noindent\textbf{架构侧对照。} 在参数对齐下（约 $25.3$M 对 $25.5$M），B0（$0.585$）几乎是单头 B4（$0.317$）的两倍，支持增益来自\emph{耦合的角色条件化}而非纯容量；B4 的消融高度偏侧（$\Delta_a{=}{+}0.012$、$\Delta_b{=}{+}0.159$）表明单头偏向 B 的上下文、几乎不整合 A 的上下文——正是两跳桶上预期的失败模式。B2（\texttt{frozen\_agents}）坍缩至 $0.000$（训练损失最高，$3.82$），支持\emph{训练后的}智能体残差（而非仅门控）是必要的。以上结论均基于单一种子（见后续步骤）。
+
+\section{实现缺陷与有效性说明}\label{sec:bug}
+\textbf{静默回退缺陷。} 在 \texttt{--lora\_mode} 下，变体 \texttt{frozen\_agents}（B2）与 \texttt{single\_model}（B4）此前构建的其实是同一个双头 \texttt{full} 模型：LoRA 分支从未根据 \texttt{--variant} 分流。因此先前 B0/B2/B4 的检查点逐字节相同（md5 \texttt{4c64d210\ldots}，最终损失同为 $1.7658$），那批 B2/B4 结果无效。\textbf{先前的 B2/B4 结果已废弃，不得引用。} 有效变体（B0/B6/B7）不受影响，因为它们的差异在数据侧实现。（另外，一次初始解析曾把评测 JSON 的两个轴转置，得出错误的 B0 \texttt{移除A}$=0.358$；修正值为 $0.159$，即上文所用。）
+
+\noindent\textbf{已加入守卫。} 一个运行期断言（\texttt{assert\_lora\_variant\_realized}）现会在所请求变体未真正改变模型时\emph{显式报错}：\texttt{single\_model} 必须构建单头封装且参数对齐（为双头基准的 $0.85$--$1.15\times$）；\texttt{frozen\_agents} 的可训练 MAS 参数必须 $<10\%$；\texttt{full}/\texttt{identical\_ctx}/\texttt{context\_shuffled} 必须训练 $100\%$。评测路径还会在 \texttt{--variant} 与检查点记录的变体不一致时给出警告。
+
+\section{当前结果与后续步骤}\label{sec:status}
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l l l@{}}
+\toprule
+\textbf{变体} & \textbf{状态} & \textbf{备注} \\
+\midrule
+B0 \texttt{full}              & 已完成，有效   & 主结果 $0.585$ EM \\
+B4 \texttt{single\_model}     & 已完成，有效   & $0.317$；参数对齐的容量对照 \\
+B6 \texttt{identical\_ctx}    & 已完成，有效   & $0.256$；数据侧对照 \\
+B7 \texttt{context\_shuffled} & 已完成，有效   & $0.061$；数据侧对照 \\
+B2 \texttt{frozen\_agents}    & 已完成，有效   & $0.000$；无 MAS 下限 \\
+种子 1--2                     & 尚未运行       & 目前所有变体均为单一种子 \\
+\midrule
+B2/B4（先前 sweep）           & 无效，已废弃   & 静默回退为 \texttt{full}（见第 \ref{sec:bug} 节） \\
+\bottomrule
+\end{tabular}
+\caption{运行状态。当前所有结果均为单一随机种子（种子 0）。}
+\end{table}
+
+\noindent\textbf{结论。} 五个变体现已全部有效。在该受控合成诊断任务上，结果支持角色条件化专精化：（i）AB 桶的 EM 及其消融不对称性随角色相关输入结构被移除而单调下降（B0~$\gg$~B6~$\gg$~B7），与由构造确定的消融预期相符；（ii）在参数对齐下，耦合模型几乎是单头模型的两倍（B0~$0.585$ 对 B4~$0.317$），支持增益来自耦合而非容量；（iii）冻结智能体变换使性能坍缩至无 MAS 下限（B2~$0.000$），支持训练后的智能体残差是必要的。所有结果均为单一种子，故效应\emph{幅度}尚未由方差界定，但定性排序在四个独立对照中一致。
+
+\noindent\textbf{后续步骤。}（i）为全部五个变体补充种子 1--2 以获得误差棒（当前有空闲 GPU，可并行执行）。（ii）提交数据集生成器（\texttt{src/elf\_mas/data/synth\_2fact.py}）以保证可复现——它目前仅存在于计算服务器上，未纳入仓库版本控制。
+
+\end{document}

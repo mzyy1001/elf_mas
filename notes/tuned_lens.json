@@ -1,0 +1,363 @@
+{
+  "layers_all": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23
+  ],
+  "mas_layers": [
+    8,
+    12,
+    16,
+    20
+  ],
+  "city_acc": [
+    0.1550000011920929,
+    0.3216666877269745,
+    0.3683333396911621,
+    0.6533333659172058,
+    0.8983333706855774,
+    0.9983333349227905,
+    1.0,
+    1.0,
+    0.9350000023841858,
+    0.9650000333786011,
+    0.9800000190734863,
+    0.9783333539962769,
+    0.9483333826065063,
+    0.9533333778381348,
+    0.9483333826065063,
+    0.9516667127609253,
+    0.9416666626930237,
+    0.9399999976158142,
+    0.9283333420753479,
+    0.9083333611488342,
+    0.9083333611488342,
+    0.9050000309944153,
+    0.8733333349227905,
+    0.8683333396911621
+  ],
+  "country_acc": [
+    0.19833333790302277,
+    0.3866666853427887,
+    0.46666666865348816,
+    0.7166666984558105,
+    0.925000011920929,
+    1.0,
+    1.0,
+    1.0,
+    0.9666666984558105,
+    0.9833333492279053,
+    0.9883333444595337,
+    0.9816666841506958,
+    0.9533333778381348,
+    0.9550000429153442,
+    0.9483333826065063,
+    0.9533333778381348,
+    0.9399999976158142,
+    0.9166666865348816,
+    0.9083333611488342,
+    0.9000000357627869,
+    0.8983333706855774,
+    0.8966667056083679,
+    0.8799999952316284,
+    0.8916667103767395
+  ],
+  "chance_city": 0.025,
+  "chance_country": 0.05555555555555555,
+  "n_city_classes": 40,
+  "n_country_classes": 18,
+  "n_train": 2000,
+  "n_eval": 600,
+  "qualitative": [
+    {
+      "gold_city": "Bogota",
+      "gold_country": "Belgium",
+      "question": "What country does Xavier live in?",
+      "by_layer": {
+        "8": {
+          "city_top3": [
+            "Bogota",
+            "Cairo",
+            "Caracas"
+          ],
+          "country_top3": [
+            "Belgium",
+            "Japan",
+            "Finland"
+          ]
+        },
+        "12": {
+          "city_top3": [
+            "Bogota",
+            "Brussels",
+            "Tokyo"
+          ],
+          "country_top3": [
+            "Belgium",
+            "Japan",
+            "Sweden"
+          ]
+        },
+        "16": {
+          "city_top3": [
+            "Bogota",
+            "Tokyo",
+            "Brussels"
+          ],
+          "country_top3": [
+            "Belgium",
+            "Egypt",
+            "Sweden"
+          ]
+        },
+        "20": {
+          "city_top3": [
+            "Bogota",
+            "Brussels",
+            "Tokyo"
+          ],
+          "country_top3": [
+            "Belgium",
+            "Egypt",
+            "Poland"
+          ]
+        },
+        "23": {
+          "city_top3": [
+            "Bogota",
+            "Brussels",
+            "Tokyo"
+          ],
+          "country_top3": [
+            "Belgium",
+            "Egypt",
+            "Iceland"
+          ]
+        }
+      }
+    },
+    {
+      "gold_city": "Rabat",
+      "gold_country": "Italy",
+      "question": "What country does Wendy live in?",
+      "by_layer": {
+        "8": {
+          "city_top3": [
+            "Rabat",
+            "Dublin",
+            "Asuncion"
+          ],
+          "country_top3": [
+            "Italy",
+            "Ireland",
+            "Iceland"
+          ]
+        },
+        "12": {
+          "city_top3": [
+            "Rabat",
+            "Dublin",
+            "Asuncion"
+          ],
+          "country_top3": [
+            "Italy",
+            "Iceland",
+            "Ireland"
+          ]
+        },
+        "16": {
+          "city_top3": [
+            "Rabat",
+            "Dublin",
+            "Asuncion"
+          ],
+          "country_top3": [
+            "Italy",
+            "Ireland",
+            "Iceland"
+          ]
+        },
+        "20": {
+          "city_top3": [
+            "Rabat",
+            "Asuncion",
+            "Dublin"
+          ],
+          "country_top3": [
+            "Italy",
+            "Japan",
+            "Ireland"
+          ]
+        },
+        "23": {
+          "city_top3": [
+            "Rabat",
+            "Asuncion",
+            "Oslo"
+          ],
+          "country_top3": [
+            "Italy",
+            "Japan",
+            "Ireland"
+          ]
+        }
+      }
+    },
+    {
+      "gold_city": "Vienna",
+      "gold_country": "Japan",
+      "question": "What country does Penny live in?",
+      "by_layer": {
+        "8": {
+          "city_top3": [
+            "Vienna",
+            "Helsinki",
+            "Bogota"
+          ],
+          "country_top3": [
+            "Japan",
+            "Belgium",
+            "Netherlands"
+          ]
+        },
+        "12": {
+          "city_top3": [
+            "Vienna",
+            "Copenhagen",
+            "Nairobi"
+          ],
+          "country_top3": [
+            "Japan",
+            "Belgium",
+            "Hungary"
+          ]
+        },
+        "16": {
+          "city_top3": [
+            "Vienna",
+            "Tokyo",
+            "Bogota"
+          ],
+          "country_top3": [
+            "Japan",
+            "Belgium",
+            "Hungary"
+          ]
+        },
+        "20": {
+          "city_top3": [
+            "Vienna",
+            "Tokyo",
+            "Copenhagen"
+          ],
+          "country_top3": [
+            "Japan",
+            "Belgium",
+            "Netherlands"
+          ]
+        },
+        "23": {
+          "city_top3": [
+            "Vienna",
+            "Tokyo",
+            "Bogota"
+          ],
+          "country_top3": [
+            "Japan",
+            "Belgium",
+            "Netherlands"
+          ]
+        }
+      }
+    },
+    {
+      "gold_city": "Zagreb",
+      "gold_country": "Czechia",
+      "question": "What country does Will live in?",
+      "by_layer": {
+        "8": {
+          "city_top3": [
+            "Zagreb",
+            "Nairobi",
+            "Accra"
+          ],
+          "country_top3": [
+            "Czechia",
+            "Belgium",
+            "Hungary"
+          ]
+        },
+        "12": {
+          "city_top3": [
+            "Zagreb",
+            "Cairo",
+            "Nairobi"
+          ],
+          "country_top3": [
+            "Czechia",
+            "Japan",
+            "Netherlands"
+          ]
+        },
+        "16": {
+          "city_top3": [
+            "Zagreb",
+            "Cairo",
+            "Nairobi"
+          ],
+          "country_top3": [
+            "Czechia",
+            "Japan",
+            "France"
+          ]
+        },
+        "20": {
+          "city_top3": [
+            "Zagreb",
+            "Nairobi",
+            "Cairo"
+          ],
+          "country_top3": [
+            "Czechia",
+            "Egypt",
+            "Hungary"
+          ]
+        },
+        "23": {
+          "city_top3": [
+            "Zagreb",
+            "Nairobi",
+            "Brussels"
+          ],
+          "country_top3": [
+            "Czechia",
+            "Sweden",
+            "Hungary"
+          ]
+        }
+      }
+    }
+  ],
+  "note": "TRAINED DIAGNOSTIC PROBE (linear, per-layer). NOT the model's native output. Feature=mean-pooled answer-block hidden at step0/t=1. hop1=bridge city, hop2=answer country."
+}
