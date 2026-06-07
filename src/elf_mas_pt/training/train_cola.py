@@ -575,6 +575,12 @@ def main():
                         "0 disables CE; values like 0.1/0.3/1.0 work as multipliers on velocity MSE.")
     p.add_argument("--t_distribution", default="logit_normal",
                    choices=["logit_normal", "uniform"])
+    p.add_argument("--buckets", default="",
+                   help="Comma-separated bucket filter for training (e.g. 'A-only,B-only' for a "
+                        "single-hop curriculum warm-up). Empty = all buckets.")
+    p.add_argument("--resume_from", default="",
+                   help="Path to a lora_state.pt to initialize MAS wrappers from (curriculum "
+                        "phase-2 resume). Only valid with --lora_mode.")
     args = p.parse_args()
 
     if args.smoke:
@@ -598,6 +604,10 @@ def main():
     from datasets import load_from_disk
     ds = load_from_disk(f"{args.dataset_dir}/train")
     print(f"[train] {len(ds)} train items")
+    if args.buckets:
+        keep = set(b.strip() for b in args.buckets.split(","))
+        ds = ds.filter(lambda r: r["bucket"] in keep)
+        print(f"[train] bucket filter {sorted(keep)} -> {len(ds)} items")
 
     # Build MAS model
     mas_wrappers = []
@@ -622,6 +632,16 @@ def main():
             single_inner=args.single_inner,
             single_heads=args.lora_heads,
         )
+        # Curriculum resume: initialize MAS wrappers from a prior checkpoint.
+        if args.resume_from:
+            rck = torch.load(args.resume_from, map_location=device)
+            assert rck.get("mode", "dual") == mas_mode, "resume mode mismatch"
+            for w, wc in zip(mas_wrappers, rck["wrappers"]):
+                if mas_mode == "single":
+                    w.mas_s.load_state_dict(wc["mas_s"])
+                else:
+                    w.mas_a.load_state_dict(wc["mas_a"]); w.mas_b.load_state_dict(wc["mas_b"])
+            print(f"[train] resumed MAS wrappers from {args.resume_from}")
         # Ensure Cola DiT base params remain frozen
         for p_ in backbone.dit.parameters():
             p_.requires_grad_(False)
